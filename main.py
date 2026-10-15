@@ -159,6 +159,10 @@ def connect_brave_cdp(port: int = 9222):
         console.print("[yellow]Brave launched. If it doesn't respond on port 9222, ensure no antivirus is blocking localhost.[/yellow]")
 
 def main():
+    known_commands = {"run", "interactive", "connect-brave", "launch-brave", "test-browser"}
+    if len(sys.argv) > 1 and sys.argv[1] not in known_commands and not sys.argv[1].startswith("-"):
+        sys.argv.insert(1, "run")
+
     parser = argparse.ArgumentParser(
         description="FRIDAY: Autonomous Browser Assistant powered by Gemini & Playwright.",
         formatter_class=argparse.RawDescriptionHelpFormatter
