@@ -1,4 +1,6 @@
 import sys
+import os
+import time
 import asyncio
 import subprocess
 import urllib.request
@@ -43,6 +45,49 @@ class BrowserManager:
         except Exception:
             return False
 
+    def _enable_brave_remote_debugging(self, port: int = 9222) -> bool:
+        """Restarts Brave with remote debugging enabled and restores tabs."""
+        brave_exe = self.cfg.browser_executable
+        if not brave_exe or not os.path.exists(brave_exe):
+            return False
+
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/IM", "brave.exe", "/F"], capture_output=True, check=False)
+        else:
+            subprocess.run(["pkill", "-f", "brave"], capture_output=True, check=False)
+
+        time.sleep(1.2)
+
+        cmd = [
+            brave_exe,
+            f"--remote-debugging-port={port}",
+            f"--profile-directory={self.cfg.profile_name}",
+            "--restore-last-session"
+        ]
+        subprocess.Popen(cmd)
+
+        for _ in range(15):
+            time.sleep(0.5)
+            if self._check_cdp_available(f"http://localhost:{port}"):
+                return True
+        return False
+
+    async def _attach_to_cdp(self, endpoint: str) -> None:
+        """Attaches to an active CDP endpoint, selecting or opening a tab without disturbing existing ones."""
+        self._browser = await self._playwright.chromium.connect_over_cdp(endpoint)
+        self._context = self._browser.contexts[0]
+        if self._context.pages:
+            current_url = self._context.pages[-1].url
+            if current_url in ("about:blank", "chrome://newtab/", "brave://newtab/"):
+                self.page = self._context.pages[-1]
+            else:
+                self.page = await self._context.new_page()
+        else:
+            self.page = await self._context.new_page()
+        self._connected_via_cdp = True
+        self.page.on("dialog", lambda dialog: asyncio.create_task(dialog.accept()))
+        self.page.on("download", self._handle_download)
+
     async def start(self) -> None:
         """Starts Playwright, attaching to active Brave via CDP or launching persistent context."""
         self._playwright = await async_playwright().start()
@@ -51,12 +96,7 @@ class BrowserManager:
         cdp_endpoint = self.cfg.cdp_url or "http://localhost:9222"
         if self._check_cdp_available(cdp_endpoint):
             print(f"[BrowserManager] Connected directly to your active running Brave browser via {cdp_endpoint}!")
-            self._browser = await self._playwright.chromium.connect_over_cdp(cdp_endpoint)
-            self._context = self._browser.contexts[0]
-            self.page = self._context.pages[0] if self._context.pages else await self._context.new_page()
-            self._connected_via_cdp = True
-            self.page.on("dialog", lambda dialog: asyncio.create_task(dialog.accept()))
-            self.page.on("download", self._handle_download)
+            await self._attach_to_cdp(cdp_endpoint)
             return
 
         # Strategy 2: Determine user data directory
@@ -67,21 +107,26 @@ class BrowserManager:
         elif self.cfg.use_existing_profile:
             brave_running = self._is_browser_process_running()
             if brave_running:
-                raise RuntimeError(
-                    "\n" + "=" * 70 + "\n"
-                    " [!] BRAVE IS CURRENTLY RUNNING AND LOCKING YOUR REAL PROFILE\n"
-                    "=" * 70 + "\n"
-                    "Your real Brave profile ('Work') is locked by the open Brave window.\n"
-                    "Chromium prohibits two independent processes from accessing the same\n"
-                    "profile files (Cookies, Logins, Sessions) at the same time.\n\n"
-                    "HOW TO FIX:\n"
-                    "  1. Run this command to connect directly to your real profile:\n"
-                    "     python main.py connect-brave\n"
-                    "     (This restarts Brave with remote debugging and restores your tabs)\n\n"
-                    "  2. OR close all Brave windows before running the agent.\n\n"
-                    "  3. OR pass '--new-profile' if you intentionally want an isolated profile.\n"
-                    + "=" * 70
-                )
+                print(f"[BrowserManager] Brave is currently running without remote debugging.")
+                print(f"[BrowserManager] Auto-enabling remote debugging on port 9222 to connect your live profile ('{self.cfg.profile_name}')...")
+                enabled = self._enable_brave_remote_debugging(port=9222)
+                if enabled:
+                    print(f"[BrowserManager] Successfully connected to your live Brave profile via CDP!")
+                    await self._attach_to_cdp("http://localhost:9222")
+                    return
+                else:
+                    raise RuntimeError(
+                        "\n" + "=" * 70 + "\n"
+                        " [!] COULD NOT AUTO-CONNECT TO BRAVE\n"
+                        "=" * 70 + "\n"
+                        "Your real Brave profile ('Work') is locked by the open Brave window,\n"
+                        "and auto-enabling remote debugging timed out.\n\n"
+                        "HOW TO FIX:\n"
+                        "  1. Run: friday connect-brave\n"
+                        "  2. OR close all Brave windows before running the agent.\n"
+                        "  3. OR pass '--new-profile' if you intentionally want an isolated profile.\n"
+                        + "=" * 70
+                    )
             else:
                 target_user_data_dir = self.cfg.brave_user_data_dir
                 print(f"[BrowserManager] Launching your real Brave profile ('{self.cfg.profile_name}'): {target_user_data_dir}")
