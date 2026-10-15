@@ -135,12 +135,23 @@ PAGE_CONTENT_JS = """
         .filter(t => t.length > 20)
         .slice(0, 5);
 
+    // Detect CAPTCHA or 2FA challenges
+    const bodyText = document.body ? document.body.innerText.toLowerCase() : '';
+    const hasCaptcha = !!document.querySelector('.cf-turnstile, iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[src*="turnstile"], #turnstile-wrapper, [class*="captcha"], [id*="captcha"]');
+    const has2FA = /two-factor|2-factor|verification code|authenticator app|one-time code|enter otp|enter the code/i.test(bodyText);
+    
+    let alertBanner = '';
+    if (hasCaptcha) alertBanner = 'ALERT: CAPTCHA or Bot Verification detected on screen!';
+    else if (has2FA) alertBanner = 'ALERT: 2-Factor Authentication (2FA / OTP) prompt detected on screen!';
+
     return {
         headings: headings.join(' | '),
-        content: paragraphs.join('\\n').substring(0, 1000)
+        content: paragraphs.join('\\n').substring(0, 1000),
+        alert: alertBanner
     };
 })()
 """
+
 
 @dataclass
 class DOMElement:

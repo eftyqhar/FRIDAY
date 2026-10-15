@@ -1,10 +1,12 @@
 import re
+import sys
 import json
 import asyncio
 from typing import Optional, List, Dict, Any
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.prompt import Prompt
 
 from google import genai
 from google.genai import types
@@ -34,6 +36,7 @@ Instructions:
   - If it is a search box or input where Enter submits, set `press_enter: true`.
 - If you need to view more content down the page, use `action: "scroll"` with `direction: "down"`.
 - If you encounter a cookie consent banner or modal popup, dismiss or accept it first.
+- If you encounter a CAPTCHA (Cloudflare Turnstile, reCAPTCHA, hCaptcha), a 2-Factor Authentication prompt (SMS code, Authenticator app OTP), or a security verification requiring human interaction, call `action: "ask_human"` and describe what the human needs to do in `instruction_for_human`.
 - When the goal is completed:
   - Call `action: "complete"`.
   - Provide a concise `summary` of what was accomplished.
@@ -44,7 +47,7 @@ Output Format:
 You MUST respond with a valid JSON object matching this schema:
 {
   "thought": "Your reasoning here",
-  "action": "click" | "type" | "press_key" | "select_option" | "scroll" | "navigate" | "wait" | "complete" | "fail",
+  "action": "click" | "type" | "press_key" | "select_option" | "scroll" | "navigate" | "wait" | "ask_human" | "complete" | "fail",
   "element_id": 1,
   "text": "text to type or key to press (optional)",
   "clear_before": true,
@@ -54,10 +57,12 @@ You MUST respond with a valid JSON object matching this schema:
   "direction": "down",
   "amount": 500,
   "seconds": 2.0,
+  "instruction_for_human": "instructions for the human when action is ask_human (optional)",
   "extracted_data": "extracted result (optional)",
   "summary": "completion or failure message (optional)"
 }
 """
+
 
 class AutonomousBrowserAgent:
     """Core autonomous agent coordinating perception, reasoning, and browser actions."""
@@ -110,9 +115,12 @@ class AutonomousBrowserAgent:
                 elements_text = DOMAnnotator.format_elements_for_prompt(elements)
 
                 console.print(f"[dim]Page:[/dim] {page_title} ([underline]{current_url}[/underline])")
+                if page_summary.get("alert"):
+                    console.print(f"[bold red on black] ⚠️ {page_summary['alert']} [/bold red on black]")
                 if page_summary.get("headings"):
                     console.print(f"[dim]Headings:[/dim] {page_summary['headings']}")
                 console.print(f"[dim]Visible interactive elements found:[/dim] {len(elements)}")
+
 
                 # 2. Reason (Text or Multimodal Gemini Call)
                 action = await self._decide_next_action(
@@ -193,6 +201,7 @@ class AutonomousBrowserAgent:
                 [f"- Step {h['step']}: {h['action']} (element {h['element_id']}) -> {'success' if h['success'] else 'failed'}" for h in recent]
             )
 
+        alert_info = f"Security / Verification Notice:\n{page_summary['alert']}\n\n" if page_summary.get("alert") else ""
         headings_info = f"Visible Headings:\n{page_summary.get('headings', 'None')}\n" if page_summary.get("headings") else ""
         content_info = f"Page Text Excerpt:\n{page_summary.get('content', 'None')}\n" if page_summary.get("content") else ""
 
@@ -202,9 +211,10 @@ Step Number: {step}
 Current URL: {current_url}
 Page Title: {page_title}
 
-{headings_info}
+{alert_info}{headings_info}
 {content_info}
 {history_summary}
+
 
 Visible Interactive Elements Table:
 {elements_text}
@@ -289,7 +299,38 @@ Determine the single next action to take towards completing the task. Respond wi
         elif action.action == "wait":
             return await bm.wait(action.seconds or 2.0)
 
+        elif action.action == "ask_human":
+            # Audio notification chime
+            try:
+                if sys.platform == "win32":
+                    import winsound
+                    winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+                else:
+                    sys.stdout.write("\a")
+                    sys.stdout.flush()
+            except Exception:
+                pass
+
+            human_instruction = (
+                action.instruction_for_human
+                or action.thought
+                or "Please complete the CAPTCHA or 2FA verification in your Brave browser."
+            )
+            console.print(Panel(
+                f"[bold yellow]⚠️  HUMAN INTERVENTION REQUIRED[/bold yellow]\n\n"
+                f"[bold white]{human_instruction}[/bold white]\n\n"
+                f"[dim]FRIDAY has paused automation. Switch to your Brave window, complete the challenge, then press Enter below to resume.[/dim]",
+                title="🛑 Human-in-the-Loop",
+                border_style="yellow"
+            ))
+
+            Prompt.ask("[bold green]▶ Press Enter once you have completed it in the browser...[/bold green]")
+            console.print("[dim]Resuming automation... letting page settle.[/dim]")
+            await asyncio.sleep(2.0)
+            return True
+
         elif action.action in ("extract_data", "complete", "fail"):
             return True
 
         return False
+

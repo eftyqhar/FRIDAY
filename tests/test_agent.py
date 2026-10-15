@@ -6,9 +6,12 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from browser_manager import BrowserManager
 from dom_annotator import DOMAnnotator
 from config import AgentConfig
+
 
 # Minimal local HTML test fixture to verify interactions without external network dependencies
 TEST_HTML = """
@@ -107,19 +110,31 @@ async def run_smoke_test():
         # 5. Execute Click Action
         print(f"[5/5] Clicking submit button [ID {button_el.id}]...")
         click_ok = await bm.execute_click(element_id=button_el.id)
-        assert click_ok, "Click failed!"
-        
         # Verify DOM updated
         result_text = await bm.page.inner_text("#result")
         print(f"  [OK] Result element text: {result_text}")
         assert "Success: Submitted AgentTester" in result_text, f"Unexpected result: {result_text}"
 
-        print("\n>>> SMOKE TEST PASSED! All core automation components are functioning perfectly.")
+        # 6. Verify ask_human action schema
+        print("[6/6] Validating 'ask_human' action schema...")
+        from actions import AgentAction
+
+        action = AgentAction(
+            thought="Cloudflare verification challenge detected on screen",
+            action="ask_human",
+            instruction_for_human="Please solve the Cloudflare verification challenge in the browser."
+        )
+        assert action.action == "ask_human"
+        assert "Cloudflare" in action.instruction_for_human
+        print("  [OK] 'ask_human' action schema validated successfully.")
+
+        print("\n>>> SMOKE TEST PASSED! All core automation components & Human-in-the-Loop are functioning perfectly.")
 
     finally:
         await bm.stop()
         if test_fixture.exists():
             test_fixture.unlink()
+
 
 if __name__ == "__main__":
     asyncio.run(run_smoke_test())

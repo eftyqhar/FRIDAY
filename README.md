@@ -10,7 +10,9 @@
 - **📝 Text-Based DOM Perception**: Operates completely in **Text-Only Mode** — no multimodal vision tokens required. Compatible with any text model, reading page headings, text excerpts, and structured interactive tables.
 - **🎯 Self-Healing Interaction Loop**: Uses Set-of-Marks (SoM) element labeling (`[1]`, `[2]`, `[3]`, ...). If single-page apps (SPAs) shift or re-render during automation, FRIDAY automatically recovers using viewport coordinate fallbacks.
 - **⚡ Real Account Access (`connect-brave`)**: Connects directly to your live open Brave browser over Chrome DevTools Protocol (`--remote-debugging-port=9222`), bypassing Windows profile locks.
+- **🛑 Human-in-the-Loop (2FA & CAPTCHA Pause)**: Automatically detects CAPTCHAs, Cloudflare Turnstiles, SMS OTPs, and 2FA prompts. FRIDAY sounds an alert chime, pauses execution, prompts you in the terminal to complete the verification in your browser window, and smoothly resumes once solved.
 - **📥 Chores & Workflows**: Handles multi-step form submissions, data scraping into JSON/CSV, and file downloads directly to `downloads/`.
+
 
 ---
 

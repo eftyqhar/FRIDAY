@@ -11,9 +11,11 @@ ActionType = Literal[
     "wait",
     "download_click",
     "extract_data",
+    "ask_human",
     "complete",
     "fail"
 ]
+
 
 class AgentAction(BaseModel):
     """Structured action decided by the agent's reasoning loop."""
@@ -36,6 +38,8 @@ class AgentAction(BaseModel):
     amount: Optional[int] = Field(default=500, description="Scroll distance in pixels.")
     seconds: Optional[float] = Field(default=2.0, description="Wait duration in seconds.")
     
-    # Completion and extraction
+    # Completion, human intervention and extraction
     extracted_data: Optional[str] = Field(default=None, description="Extracted content or answer when extracting data.")
+    instruction_for_human: Optional[str] = Field(default=None, description="Specific instructions for the human when action is 'ask_human'.")
     summary: Optional[str] = Field(default=None, description="Final summary of the completed task or failure explanation.")
+
